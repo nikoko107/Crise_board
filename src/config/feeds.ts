@@ -40,6 +40,15 @@ export const SOURCE_TIERS: Record<string, number> = {
   'EuroNews': 2,
   'France 24': 2,
   'Le Monde': 2,
+  // French
+  'LCI': 2,
+  'Le Figaro': 2,
+  'Libération': 2,
+  'BFMTV': 2,
+  'Météo France': 1,
+  'Vigicrues': 1,
+  'CNES': 1,
+  'Copernicus EU': 1,
   // Spanish
   'El País': 2,
   'El Mundo': 2,
@@ -302,6 +311,8 @@ export const SOURCE_TYPES: Record<string, SourceType> = {
   'NPR News': 'mainstream', 'Al Jazeera': 'mainstream',
   'CNN World': 'mainstream', 'Politico': 'mainstream',
   'EuroNews': 'mainstream', 'France 24': 'mainstream', 'Le Monde': 'mainstream',
+  'LCI': 'mainstream', 'Le Figaro': 'mainstream', 'Libération': 'mainstream', 'BFMTV': 'mainstream',
+  'Météo France': 'government', 'Vigicrues': 'government', 'CNES': 'government', 'Copernicus EU': 'government',
   // European Addition
   'El País': 'mainstream', 'El Mundo': 'mainstream', 'BBC Mundo': 'mainstream',
   'Tagesschau': 'mainstream', 'Der Spiegel': 'mainstream', 'Die Zeit': 'mainstream', 'DW News': 'mainstream',
@@ -384,6 +395,14 @@ export const SOURCE_PROPAGANDA_RISK: Record<string, SourceRiskProfile> = {
   'France 24': { risk: 'medium', stateAffiliated: 'France', note: 'French state-funded, editorially independent' },
   'EuroNews': { risk: 'low', note: 'European public broadcaster consortium', knownBiases: ['Pro-EU'] },
   'Le Monde': { risk: 'low', note: 'French newspaper of record' },
+  'LCI': { risk: 'low', stateAffiliated: 'France', note: 'TF1 Group news channel — editorially independent' },
+  'Le Figaro': { risk: 'low', note: 'French centre-right daily' },
+  'Libération': { risk: 'low', note: 'French centre-left daily' },
+  'BFMTV': { risk: 'low', note: 'French rolling-news channel' },
+  'Météo France': { risk: 'low', stateAffiliated: 'France', note: 'Official French national meteorological service' },
+  'Vigicrues': { risk: 'low', stateAffiliated: 'France', note: 'Official French flood-warning service (SCHAPI/MTES)' },
+  'CNES': { risk: 'low', stateAffiliated: 'France', note: 'French national space agency — earth observation data' },
+  'Copernicus EU': { risk: 'low', stateAffiliated: 'EU', note: 'European Commission satellite earth-observation programme' },
   'DW News': { risk: 'medium', stateAffiliated: 'Germany', note: 'German state-funded, editorially independent' },
   'Voice of America': { risk: 'medium', stateAffiliated: 'USA', note: 'US government-funded' },
   'Kyiv Independent': { risk: 'medium', knownBiases: ['Pro-Ukraine'], note: 'Ukrainian perspective on Russia-Ukraine war' },
@@ -573,6 +592,59 @@ const FULL_FEEDS: Record<string, Feed[]> = {
     { name: 'TASS', url: rss('https://news.google.com/rss/search?q=site:tass.com+OR+TASS+Russia+when:1d&hl=en-US&gl=US&ceid=US:en') },
     { name: 'Kyiv Independent', url: rss('https://news.google.com/rss/search?q=site:kyivindependent.com+when:3d&hl=en-US&gl=US&ceid=US:en') },
     { name: 'Moscow Times', url: rss('https://www.themoscowtimes.com/rss/news') },
+  ],
+  // ── France — Crises climatiques ──────────────────────────────────────────────
+  'france-crises': [
+    // Actualités France — chaînes info
+    { name: 'LCI', url: rss('https://www.lci.fr/rss/rss.xml'), lang: 'fr' },
+    { name: 'BFMTV', url: rss('https://www.bfmtv.com/rss/news-feed/'), lang: 'fr' },
+    {
+      name: 'Le Monde',
+      url: {
+        en: rss('https://www.lemonde.fr/en/rss/une.xml'),
+        fr: rss('https://www.lemonde.fr/rss/une.xml'),
+      },
+    },
+    { name: 'Le Figaro', url: rss('https://www.lefigaro.fr/rss/figaro_actualites.xml'), lang: 'fr' },
+    { name: 'Libération', url: rss('https://www.liberation.fr/arc/outboundfeeds/rss/?outputType=xml'), lang: 'fr' },
+
+    // Météo France — vigilance, alertes météo
+    {
+      name: 'Météo France',
+      url: rss('https://news.google.com/rss/search?q=site:meteofrance.fr+vigilance+OR+alerte&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
+    {
+      name: 'Météo France Alertes',
+      url: rss('https://news.google.com/rss/search?q=(vigilance+m%C3%A9t%C3%A9o+OR+"alerte+rouge"+OR+"alerte+orange")+France+when:1d&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
+
+    // Vigicrues — crues et inondations
+    {
+      name: 'Vigicrues',
+      url: rss('https://news.google.com/rss/search?q=(Vigicrues+OR+crue+OR+inondation)+France+when:3d&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
+
+    // Données satellites — Copernicus / CNES
+    {
+      name: 'Copernicus EU',
+      url: rss('https://news.google.com/rss/search?q=(Copernicus+OR+satellite+CNES+OR+Sentinel)+France+climat+when:7d&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
+    {
+      name: 'CNES',
+      url: rss('https://news.google.com/rss/search?q=site:cnes.fr+when:14d&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
+
+    // Crises / catastrophes naturelles France
+    {
+      name: 'Crises France',
+      url: rss('https://news.google.com/rss/search?q=(incendie+OR+s%C3%A9cheresse+OR+inondation+OR+tempête+OR+canicule+OR+gel)+France+when:3d&hl=fr&gl=FR&ceid=FR:fr'),
+      lang: 'fr',
+    },
   ],
   africa: [
     { name: 'Africa News', url: rss('https://news.google.com/rss/search?q=(Africa+OR+Nigeria+OR+Kenya+OR+"South+Africa"+OR+Ethiopia)+when:2d&hl=en-US&gl=US&ceid=US:en') },

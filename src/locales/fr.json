@@ -151,7 +151,9 @@
     "techHubs": "Pôles Technologiques",
     "gccInvestments": "Investissements du CCG",
     "geoHubs": "Centres géopolitiques",
-    "liveWebcams": "Webcams en Direct"
+    "liveWebcams": "Webcams en Direct",
+    "franceCrises": "France — Crises climatiques",
+    "franceCrisesNews": "Actualités France"
   },
   "modals": {
     "search": {
@@ -1161,6 +1163,20 @@
       "notLive": "{{name}} is not currently live",
       "cannotEmbed": "{{name}} cannot be embedded in this app (YouTube {{code}})",
       "openOnYouTube": "Open on YouTube"
+    },
+    "franceCrises": {
+      "noAlerts": "Aucune alerte active pour la France",
+      "vigicrues": "Vigicrues — Vigilance crues",
+      "meteoFrance": "Météo France — Vigilance météo",
+      "copernicus": "Copernicus Satellite — France",
+      "river": "Cours d'eau",
+      "phenomenon": "Phénomène",
+      "zone": "Zone",
+      "level": "Niveau",
+      "severity": "Gravité",
+      "dept": "Dép.",
+      "date": "Date",
+      "infoTooltip": "<strong>Suivi des crises climatiques en France</strong><br>Données temps réel issues de trois sources officielles :<ul><li><strong>Vigicrues</strong> — vigilance crues SCHAPI (niveaux 2 à 4)</li><li><strong>Météo France</strong> — vigilance météorologique nationale (jaune → rouge)</li><li><strong>Copernicus EFFIS</strong> — détection d'incendies par satellite</li></ul>Cliquez sur une ligne pour centrer la carte sur l'alerte."
     }
   },
   "popups": {

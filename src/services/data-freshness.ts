@@ -31,6 +31,7 @@ export type DataSourceId =
   | 'ucdp_events'    // UCDP georeferenced conflict events
   | 'unhcr'          // UNHCR displacement data
   | 'climate'        // Climate anomaly data (Open-Meteo)
+  | 'france-climate' // France climate crises (Vigicrues + Météo France + Copernicus)
   | 'worldpop';      // WorldPop population exposure
 
 export type FreshnessStatus = 'fresh' | 'stale' | 'very_stale' | 'no_data' | 'disabled' | 'error';
@@ -92,6 +93,7 @@ const SOURCE_METADATA: Record<DataSourceId, { name: string; requiredForRisk: boo
   ucdp_events: { name: 'UCDP Conflict Events', requiredForRisk: false, panelId: 'ucdp-events' },
   unhcr: { name: 'UNHCR Displacement', requiredForRisk: false, panelId: 'displacement' },
   climate: { name: 'Climate Anomalies', requiredForRisk: false, panelId: 'climate' },
+  'france-climate': { name: 'France Climate Crises', requiredForRisk: false, panelId: 'france-climate' },
   worldpop: { name: 'Population Exposure', requiredForRisk: false, panelId: 'population-exposure' },
 };
 
@@ -346,6 +348,7 @@ const INTELLIGENCE_GAP_MESSAGES: Record<DataSourceId, string> = {
   ucdp_events: 'UCDP event-level conflict data unavailable',
   unhcr: 'UNHCR displacement data unavailable—refugee flows unknown',
   climate: 'Climate anomaly data unavailable—extreme weather patterns undetected',
+  'france-climate': 'France climate crisis data unavailable—Vigicrues/Météo France/Copernicus offline',
   worldpop: 'Population exposure data unavailable—affected population unknown',
 };
 

@@ -128,7 +128,9 @@
     "techReadiness": "Tech Readiness Index",
     "gccInvestments": "GCC Investments",
     "geoHubs": "Geopolitical Hubs",
-    "liveWebcams": "Live Webcams"
+    "liveWebcams": "Live Webcams",
+    "franceCrises": "France — Climate Crises",
+    "franceCrisesNews": "France News"
   },
   "modals": {
     "search": {
@@ -245,7 +247,7 @@
         "some": "Some features need API keys"
       },
       "openSettings": "Open Settings",
-      "skipSetup": "Skip the setup \u2014 a single World Monitor license unlocks everything. Join the waitlist for early access.",
+      "skipSetup": "Skip the setup — a single World Monitor license unlocks everything. Join the waitlist for early access.",
       "summary": {
         "desktop": "Desktop mode",
         "web": "Web mode (read-only, server-managed credentials)",
@@ -1164,6 +1166,20 @@
       "notLive": "{{name}} is not currently live",
       "cannotEmbed": "{{name}} cannot be embedded in this app (YouTube {{code}})",
       "openOnYouTube": "Open on YouTube"
+    },
+    "franceCrises": {
+      "noAlerts": "No active alerts for France",
+      "vigicrues": "Vigicrues — Flood Alerts",
+      "meteoFrance": "Météo France — Weather Vigilance",
+      "copernicus": "Copernicus Satellite — France",
+      "river": "River",
+      "phenomenon": "Phenomenon",
+      "zone": "Zone",
+      "level": "Level",
+      "severity": "Severity",
+      "dept": "Dept.",
+      "date": "Date",
+      "infoTooltip": "<strong>France Climate Crisis Monitor</strong><br>Real-time data from three official French sources:<ul><li><strong>Vigicrues</strong> — SCHAPI river/flood vigilance (levels 2–4)</li><li><strong>Météo France</strong> — national weather vigilance (yellow → red)</li><li><strong>Copernicus EFFIS</strong> — satellite fire detection for France</li></ul>Click any row to centre the map on that alert."
     }
   },
   "popups": {

@@ -35,6 +35,7 @@ export * from './StablecoinPanel';
 export * from './UcdpEventsPanel';
 export * from './DisplacementPanel';
 export * from './ClimateAnomalyPanel';
+export * from './FranceClimatePanel';
 export * from './PopulationExposurePanel';
 export * from './InvestmentsPanel';
 export * from './LanguageSelector';
