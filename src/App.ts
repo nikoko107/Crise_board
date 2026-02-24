@@ -28,8 +28,10 @@ import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { ingestProtestsForCII, ingestMilitaryForCII, ingestNewsForCII, ingestOutagesForCII, ingestConflictsForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, startLearning, isInLearningMode, calculateCII, getCountryData, TIER1_COUNTRIES } from '@/services/country-instability';
 import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
 import { focusInvestmentOnMap } from '@/services/investments-focus';
+import { classifyNewsItem } from '@/services/positive-classifier';
 import { fetchConflictEvents, fetchUcdpClassifications, fetchHapiSummary, fetchUcdpEvents, deduplicateAgainstAcled } from '@/services/conflict';
 import { fetchUnhcrPopulation } from '@/services/displacement';
+import { fetchGivingSummary } from '@/services/giving';
 import { fetchClimateAnomalies } from '@/services/climate';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { buildMapUrl, debounce, loadFromStorage, parseMapUrlState, saveToStorage, ExportPanel, getCircuitBreakerCooldownInfo, isMobileDevice, setTheme, getCurrentTheme } from '@/utils';
@@ -76,6 +78,7 @@ import {
   ETFFlowsPanel,
   StablecoinPanel,
   UcdpEventsPanel,
+  GivingPanel,
   DisplacementPanel,
   ClimateAnomalyPanel,
   PopulationExposurePanel,
@@ -95,6 +98,25 @@ import { AI_RESEARCH_LABS } from '@/config/ai-research-labs';
 import { STARTUP_ECOSYSTEMS } from '@/config/startup-ecosystems';
 import { TECH_HQS, ACCELERATORS } from '@/config/tech-geo';
 import { STOCK_EXCHANGES, FINANCIAL_CENTERS, CENTRAL_BANKS, COMMODITY_HUBS } from '@/config/finance-geo';
+import { PositiveNewsFeedPanel } from '@/components/PositiveNewsFeedPanel';
+import { CountersPanel } from '@/components/CountersPanel';
+import { ProgressChartsPanel } from '@/components/ProgressChartsPanel';
+import { BreakthroughsTickerPanel } from '@/components/BreakthroughsTickerPanel';
+import { HeroSpotlightPanel } from '@/components/HeroSpotlightPanel';
+import { GoodThingsDigestPanel } from '@/components/GoodThingsDigestPanel';
+import { SpeciesComebackPanel } from '@/components/SpeciesComebackPanel';
+import { RenewableEnergyPanel } from '@/components/RenewableEnergyPanel';
+import { TvModeController } from '@/services/tv-mode';
+import { fetchProgressData } from '@/services/progress-data';
+import { fetchConservationWins } from '@/services/conservation-data';
+import { fetchRenewableEnergyData, fetchEnergyCapacity } from '@/services/renewable-energy-data';
+import { checkMilestones } from '@/services/celebration';
+import { fetchHappinessScores } from '@/services/happiness-data';
+import { fetchRenewableInstallations } from '@/services/renewable-installations';
+import { filterBySentiment } from '@/services/sentiment-gate';
+import { fetchAllPositiveTopicIntelligence } from '@/services/gdelt-intel';
+import { fetchPositiveGeoEvents, geocodePositiveNewsItems } from '@/services/positive-events-geo';
+import { fetchKindnessData } from '@/services/kindness-data';
 import { isDesktopRuntime } from '@/services/runtime';
 import { UnifiedSettings } from '@/components/UnifiedSettings';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
@@ -105,6 +127,7 @@ import { trackEvent, trackPanelView, trackVariantSwitch, trackThemeChanged, trac
 import { invokeTauri } from '@/services/tauri-bridge';
 import { getCountryAtCoordinates, hasCountryGeometry, isCoordinateInCountry, preloadCountryGeometry } from '@/services/country-geometry';
 import { initI18n, t } from '@/services/i18n';
+import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 
 import type { MarketData, ClusteredEvent } from '@/types';
 import type { PredictionMarket } from '@/services/prediction';
@@ -201,6 +224,16 @@ export class App {
   private readonly UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
   private updateCheckIntervalId: ReturnType<typeof setInterval> | null = null;
   private clockIntervalId: ReturnType<typeof setInterval> | null = null;
+  private positivePanel: PositiveNewsFeedPanel | null = null;
+  private countersPanel?: CountersPanel;
+  private progressPanel?: ProgressChartsPanel;
+  private breakthroughsPanel?: BreakthroughsTickerPanel;
+  private heroPanel?: HeroSpotlightPanel;
+  private digestPanel?: GoodThingsDigestPanel;
+  private speciesPanel?: SpeciesComebackPanel;
+  private renewablePanel?: RenewableEnergyPanel;
+  private tvMode: TvModeController | null = null;
+  private happyAllItems: NewsItem[] = [];
   private panelDragCleanupHandlers: Array<() => void> = [];
 
   constructor(containerId: string) {
@@ -230,10 +263,21 @@ export class App {
       this.panelSettings = { ...DEFAULT_PANELS };
     } else {
       this.mapLayers = loadFromStorage<MapLayers>(STORAGE_KEYS.mapLayers, defaultLayers);
+      // Happy variant: force non-happy layers off even if localStorage has stale true values
+      if (currentVariant === 'happy') {
+        const unhappyLayers: (keyof MapLayers)[] = ['conflicts', 'bases', 'hotspots', 'nuclear', 'irradiators', 'sanctions', 'military', 'protests', 'pipelines', 'waterways', 'ais', 'flights', 'spaceports', 'minerals', 'natural', 'fires', 'outages', 'cyberThreats', 'weather', 'economic', 'cables', 'datacenters', 'ucdpEvents', 'displacement', 'climate'];
+        unhappyLayers.forEach(layer => { this.mapLayers[layer] = false; });
+      }
       this.panelSettings = loadFromStorage<Record<string, PanelConfig>>(
         STORAGE_KEYS.panels,
         DEFAULT_PANELS
       );
+      // Merge in any new panels that didn't exist when settings were saved
+      for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
+        if (!(key in this.panelSettings)) {
+          this.panelSettings[key] = { ...config };
+        }
+      }
       console.log('[App] Loaded panel settings from storage:', Object.entries(this.panelSettings).filter(([_, v]) => !v.enabled).map(([k]) => k));
 
       // One-time migration: reorder panels for existing users (v1.9 panel layout)
@@ -325,6 +369,14 @@ export class App {
           urlLayers[layer] = false;
         });
       }
+      // For happy variant, force off all non-happy layers (including natural events)
+      if (currentVariant === 'happy') {
+        const unhappyLayers: (keyof MapLayers)[] = ['conflicts', 'bases', 'hotspots', 'nuclear', 'irradiators', 'sanctions', 'military', 'protests', 'pipelines', 'waterways', 'ais', 'flights', 'spaceports', 'minerals', 'natural', 'fires', 'outages', 'cyberThreats', 'weather', 'economic', 'cables', 'datacenters', 'ucdpEvents', 'displacement', 'climate'];
+        const urlLayers = this.initialUrlState.layers;
+        unhappyLayers.forEach(layer => {
+          urlLayers[layer] = false;
+        });
+      }
       this.mapLayers = this.initialUrlState.layers;
     }
     if (!CYBER_LAYER_ENABLED) {
@@ -383,6 +435,11 @@ export class App {
     this.setupUrlStateSync();
     this.syncDataFreshnessWithLayers();
     await preloadCountryGeometry();
+    // Happy variant: pre-populate panels from persistent cache for instant render
+    // while live RSS feeds load in the background
+    if (SITE_VARIANT === 'happy') {
+      await this.hydrateHappyPanelsFromCache();
+    }
     await this.loadAllData();
 
     // Start CII learning mode after first data load
@@ -696,8 +753,8 @@ export class App {
   }
 
   private setupPizzIntIndicator(): void {
-    // Skip DEFCON indicator for tech/startup and finance variants
-    if (SITE_VARIANT === 'tech' || SITE_VARIANT === 'finance') return;
+    // Skip DEFCON indicator for tech/startup, finance, and happy variants
+    if (SITE_VARIANT === 'tech' || SITE_VARIANT === 'finance' || SITE_VARIANT === 'happy') return;
 
     this.pizzintIndicator = new PizzIntIndicator();
     const headerLeft = this.container.querySelector('.header-left');
@@ -1342,13 +1399,21 @@ export class App {
           placeholder: t('modals.search.placeholderFinance'),
           hint: t('modals.search.hintFinance'),
         }
-        : {
-          placeholder: t('modals.search.placeholder'),
-          hint: t('modals.search.hint'),
-        };
+        : SITE_VARIANT === 'happy'
+          ? {
+            placeholder: 'Search good news...',
+            hint: 'Search positive stories and breakthroughs',
+          }
+          : {
+            placeholder: t('modals.search.placeholder'),
+            hint: t('modals.search.hint'),
+          };
     this.searchModal = new SearchModal(this.container, searchOptions);
 
-    if (SITE_VARIANT === 'tech') {
+    if (SITE_VARIANT === 'happy') {
+      // Happy variant: no geopolitical/military sources to search
+      // News items will be searchable via the default search index update
+    } else if (SITE_VARIANT === 'tech') {
       // Tech variant: tech-specific sources
       this.searchModal.registerSource('techcompany', TECH_COMPANIES.map(c => ({
         id: c.id,
@@ -1892,6 +1957,15 @@ export class App {
                title="${t('header.finance')}${SITE_VARIANT === 'finance' ? ` ${t('common.currentVariant')}` : ''}">
               <span class="variant-icon">📈</span>
               <span class="variant-label">${t('header.finance')}</span>
+            </a>
+            <span class="variant-divider"></span>
+            <a href="${this.isDesktopApp ? '#' : (SITE_VARIANT === 'happy' ? '#' : 'https://happy.worldmonitor.app')}"
+               class="variant-option ${SITE_VARIANT === 'happy' ? 'active' : ''}"
+               data-variant="happy"
+               ${!this.isDesktopApp && SITE_VARIANT !== 'happy' ? 'target="_blank" rel="noopener"' : ''}
+               title="Good News${SITE_VARIANT === 'happy' ? ` ${t('common.currentVariant')}` : ''}">
+              <span class="variant-icon">☀️</span>
+              <span class="variant-label">Good News</span>
             </a>`;
           })()}</div>
           <span class="logo">MONITOR</span><span class="version">v${__APP_VERSION__}</span>${BETA_MODE ? '<span class="beta-badge">BETA</span>' : ''}
@@ -1927,6 +2001,7 @@ export class App {
         ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>'}
           </button>
+          ${SITE_VARIANT === 'happy' ? `<button class="tv-mode-btn" id="tvModeBtn" title="TV Mode (Shift+T)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></button>` : ''}
           ${this.isDesktopApp ? '' : `<button class="fullscreen-btn" id="fullscreenBtn" title="${t('header.fullscreen')}">⛶</button>`}
           <span id="unifiedSettingsMount"></span>
         </div>
@@ -1935,7 +2010,7 @@ export class App {
         <div class="map-section" id="mapSection">
           <div class="panel-header">
             <div class="panel-header-left">
-              <span class="panel-title">${SITE_VARIANT === 'tech' ? t('panels.techMap') : t('panels.map')}</span>
+              <span class="panel-title">${SITE_VARIANT === 'tech' ? t('panels.techMap') : SITE_VARIANT === 'happy' ? 'Good News Map' : t('panels.map')}</span>
             </div>
             <span class="header-clock" id="headerClock"></span>
             <button class="map-pin-btn" id="mapPinBtn" title="${t('header.pinMap')}">
@@ -1949,6 +2024,7 @@ export class App {
         </div>
         <div class="panels-grid" id="panelsGrid"></div>
       </div>
+      ${SITE_VARIANT === 'happy' ? '<button class="tv-exit-btn" id="tvExitBtn">Exit TV Mode</button>' : ''}
     `;
 
     this.createPanels();
@@ -2092,6 +2168,17 @@ export class App {
       });
       this.boundIdleResetHandler = null;
     }
+
+    // Clean up happy variant panels
+    this.tvMode?.destroy();
+    this.tvMode = null;
+    this.countersPanel?.destroy();
+    this.progressPanel?.destroy();
+    this.breakthroughsPanel?.destroy();
+    this.heroPanel?.destroy();
+    this.digestPanel?.destroy();
+    this.speciesPanel?.destroy();
+    this.renewablePanel?.destroy();
 
     // Clean up panel drag listeners (used by mouse-based panel reordering).
     this.panelDragCleanupHandlers.forEach((cleanup) => cleanup());
@@ -2304,6 +2391,10 @@ export class App {
       this.panels[panelKey] = panel;
     }
 
+    // Global Giving panel (all variants)
+    const givingPanel = new GivingPanel();
+    this.panels['giving'] = givingPanel;
+
     // Geopolitical-only panels (not needed for tech variant)
     if (SITE_VARIANT === 'full') {
       const gdeltIntelPanel = new GdeltIntelPanel();
@@ -2364,34 +2455,91 @@ export class App {
       this.panels['gcc-investments'] = investmentsPanel;
     }
 
-    const liveNewsPanel = new LiveNewsPanel();
-    this.panels['live-news'] = liveNewsPanel;
+    // Happy variant only gets dynamic FEEDS-based news panels + insights -- skip all other panels
+    if (SITE_VARIANT !== 'happy') {
+      const liveNewsPanel = new LiveNewsPanel();
+      this.panels['live-news'] = liveNewsPanel;
 
-    const liveWebcamsPanel = new LiveWebcamsPanel();
-    this.panels['live-webcams'] = liveWebcamsPanel;
+      const liveWebcamsPanel = new LiveWebcamsPanel();
+      this.panels['live-webcams'] = liveWebcamsPanel;
 
-    // Tech Events Panel (tech variant only - but create for all to allow toggling)
-    this.panels['events'] = new TechEventsPanel('events');
+      // Tech Events Panel (tech variant only - but create for all to allow toggling)
+      this.panels['events'] = new TechEventsPanel('events');
 
-    // Service Status Panel (primarily for tech variant)
-    const serviceStatusPanel = new ServiceStatusPanel();
-    this.panels['service-status'] = serviceStatusPanel;
+      // Service Status Panel (primarily for tech variant)
+      const serviceStatusPanel = new ServiceStatusPanel();
+      this.panels['service-status'] = serviceStatusPanel;
+
+      // Tech Readiness Panel (tech variant only - World Bank tech indicators)
+      const techReadinessPanel = new TechReadinessPanel();
+      this.panels['tech-readiness'] = techReadinessPanel;
+
+      // Crypto & Market Intelligence Panels
+      this.panels['macro-signals'] = new MacroSignalsPanel();
+      this.panels['etf-flows'] = new ETFFlowsPanel();
+      this.panels['stablecoins'] = new StablecoinPanel();
+    }
 
     if (this.isDesktopApp) {
       const runtimeConfigPanel = new RuntimeConfigPanel({ mode: 'alert' });
       this.panels['runtime-config'] = runtimeConfigPanel;
     }
 
-    // Tech Readiness Panel (tech variant only - World Bank tech indicators)
-    const techReadinessPanel = new TechReadinessPanel();
-    this.panels['tech-readiness'] = techReadinessPanel;
+    // Positive News Feed Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.positivePanel = new PositiveNewsFeedPanel();
+      this.panels['positive-feed'] = this.positivePanel;
+    }
 
-    // Crypto & Market Intelligence Panels
-    this.panels['macro-signals'] = new MacroSignalsPanel();
-    this.panels['etf-flows'] = new ETFFlowsPanel();
-    this.panels['stablecoins'] = new StablecoinPanel();
+    // Counters Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.countersPanel = new CountersPanel();
+      this.panels['counters'] = this.countersPanel;
+      this.countersPanel.startTicking();
+    }
 
-    // AI Insights Panel (desktop only - hides itself on mobile)
+    // Progress Charts Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.progressPanel = new ProgressChartsPanel();
+      this.panels['progress'] = this.progressPanel;
+    }
+
+    // Breakthroughs Ticker Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.breakthroughsPanel = new BreakthroughsTickerPanel();
+      this.panels['breakthroughs'] = this.breakthroughsPanel;
+    }
+
+    // Hero Spotlight Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.heroPanel = new HeroSpotlightPanel();
+      this.panels['spotlight'] = this.heroPanel;
+      // Wire map location callback
+      this.heroPanel.onLocationRequest = (lat: number, lon: number) => {
+        this.map?.setCenter(lat, lon, 4);
+        this.map?.flashLocation(lat, lon, 3000);
+      };
+    }
+
+    // Good Things Digest Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.digestPanel = new GoodThingsDigestPanel();
+      this.panels['digest'] = this.digestPanel;
+    }
+
+    // Species Comeback Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.speciesPanel = new SpeciesComebackPanel();
+      this.panels['species'] = this.speciesPanel;
+    }
+
+    // Renewable Energy Panel (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      this.renewablePanel = new RenewableEnergyPanel();
+      this.panels['renewable'] = this.renewablePanel;
+    }
+
+    // AI Insights Panel (desktop only - hides itself on mobile) -- available for all variants
     const insightsPanel = new InsightsPanel();
     this.panels['insights'] = insightsPanel;
 
@@ -2412,24 +2560,29 @@ export class App {
       const insertIdx = valid.indexOf('politics') + 1 || 0;
       const newPanels = missing.filter(k => k !== 'monitors');
       valid.splice(insertIdx, 0, ...newPanels);
-      valid.push('monitors'); // Always put monitors last
+      if (SITE_VARIANT !== 'happy') {
+        valid.push('monitors'); // Always put monitors last (not in happy variant)
+      }
       panelOrder = valid;
     }
 
     // CRITICAL: live-news MUST be first for CSS Grid layout (spans 2 columns)
     // Move it to position 0 if it exists and isn't already first
-    const liveNewsIdx = panelOrder.indexOf('live-news');
-    if (liveNewsIdx > 0) {
-      panelOrder.splice(liveNewsIdx, 1);
-      panelOrder.unshift('live-news');
-    }
+    // (Not applicable for happy variant which has no live-news panel)
+    if (SITE_VARIANT !== 'happy') {
+      const liveNewsIdx = panelOrder.indexOf('live-news');
+      if (liveNewsIdx > 0) {
+        panelOrder.splice(liveNewsIdx, 1);
+        panelOrder.unshift('live-news');
+      }
 
-    // live-webcams MUST follow live-news (one-time migration for existing users)
-    const webcamsIdx = panelOrder.indexOf('live-webcams');
-    if (webcamsIdx !== -1 && webcamsIdx !== panelOrder.indexOf('live-news') + 1) {
-      panelOrder.splice(webcamsIdx, 1);
-      const afterNews = panelOrder.indexOf('live-news') + 1;
-      panelOrder.splice(afterNews, 0, 'live-webcams');
+      // live-webcams MUST follow live-news (one-time migration for existing users)
+      const webcamsIdx = panelOrder.indexOf('live-webcams');
+      if (webcamsIdx !== -1 && webcamsIdx !== panelOrder.indexOf('live-news') + 1) {
+        panelOrder.splice(webcamsIdx, 1);
+        const afterNews = panelOrder.indexOf('live-news') + 1;
+        panelOrder.splice(afterNews, 0, 'live-webcams');
+      }
     }
 
     // Desktop configuration should stay easy to reach in Tauri builds.
@@ -2754,6 +2907,28 @@ export class App {
       document.addEventListener('fullscreenchange', this.boundFullscreenHandler);
     }
 
+    // TV Mode (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      const tvBtn = document.getElementById('tvModeBtn');
+      const tvExitBtn = document.getElementById('tvExitBtn');
+      if (tvBtn) {
+        tvBtn.addEventListener('click', () => this.toggleTvMode());
+      }
+      if (tvExitBtn) {
+        tvExitBtn.addEventListener('click', () => this.toggleTvMode());
+      }
+      // Keyboard shortcut: Shift+T
+      document.addEventListener('keydown', (e) => {
+        if (e.shiftKey && e.key === 'T' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          const active = document.activeElement;
+          if (active?.tagName !== 'INPUT' && active?.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            this.toggleTvMode();
+          }
+        }
+      });
+    }
+
     // Region selector
     const regionSelect = document.getElementById('regionSelect') as HTMLSelectElement;
     regionSelect?.addEventListener('change', () => {
@@ -2935,6 +3110,25 @@ export class App {
     }
   }
 
+  private toggleTvMode(): void {
+    // Always rebuild panel keys to reflect current visibility settings
+    const panelKeys = Object.keys(DEFAULT_PANELS).filter(
+      key => this.panelSettings[key]?.enabled !== false
+    );
+    if (!this.tvMode) {
+      this.tvMode = new TvModeController({
+        panelKeys,
+        onPanelChange: () => {
+          document.getElementById('tvModeBtn')?.classList.toggle('active', this.tvMode?.active ?? false);
+        }
+      });
+    } else {
+      this.tvMode.updatePanelKeys(panelKeys);
+    }
+    this.tvMode.toggle();
+    document.getElementById('tvModeBtn')?.classList.toggle('active', this.tvMode.active);
+  }
+
   private setupMapResize(): void {
     const mapSection = document.getElementById('mapSection');
     const resizeHandle = document.getElementById('mapResizeHandle');
@@ -3066,16 +3260,22 @@ export class App {
 
     const tasks: Array<{ name: string; task: Promise<void> }> = [
       { name: 'news', task: runGuarded('news', () => this.loadNews()) },
-      { name: 'markets', task: runGuarded('markets', () => this.loadMarkets()) },
-      { name: 'predictions', task: runGuarded('predictions', () => this.loadPredictions()) },
-      { name: 'pizzint', task: runGuarded('pizzint', () => this.loadPizzInt()) },
-      { name: 'fred', task: runGuarded('fred', () => this.loadFredData()) },
-      { name: 'oil', task: runGuarded('oil', () => this.loadOilAnalytics()) },
-      { name: 'spending', task: runGuarded('spending', () => this.loadGovernmentSpending()) },
     ];
 
+    // Happy variant only loads news data -- skip all geopolitical/financial/military data
+    if (SITE_VARIANT !== 'happy') {
+      tasks.push(
+        { name: 'markets', task: runGuarded('markets', () => this.loadMarkets()) },
+        { name: 'predictions', task: runGuarded('predictions', () => this.loadPredictions()) },
+        { name: 'pizzint', task: runGuarded('pizzint', () => this.loadPizzInt()) },
+        { name: 'fred', task: runGuarded('fred', () => this.loadFredData()) },
+        { name: 'oil', task: runGuarded('oil', () => this.loadOilAnalytics()) },
+        { name: 'spending', task: runGuarded('spending', () => this.loadGovernmentSpending()) },
+      );
+    }
+
     // Load intelligence signals for CII calculation (protests, military, outages)
-    // Only for geopolitical variant - tech variant doesn't need CII/focal points
+    // Only for geopolitical variant - tech/happy variants don't need CII/focal points
     if (SITE_VARIANT === 'full') {
       tasks.push({ name: 'intelligence', task: runGuarded('intelligence', () => this.loadIntelligenceSignals()) });
     }
@@ -3083,15 +3283,64 @@ export class App {
     // Conditionally load non-intelligence layers
     // NOTE: outages, protests, military are handled by loadIntelligenceSignals() above
     // They update the map when layers are enabled, so no duplicate tasks needed here
+    // Happy variant skips all non-news data layers except natural (which is part of happy map layers)
     if (SITE_VARIANT === 'full') tasks.push({ name: 'firms', task: runGuarded('firms', () => this.loadFirmsData()) });
     if (this.mapLayers.natural) tasks.push({ name: 'natural', task: runGuarded('natural', () => this.loadNatural()) });
-    if (this.mapLayers.weather) tasks.push({ name: 'weather', task: runGuarded('weather', () => this.loadWeatherAlerts()) });
-    if (this.mapLayers.ais) tasks.push({ name: 'ais', task: runGuarded('ais', () => this.loadAisSignals()) });
-    if (this.mapLayers.cables) tasks.push({ name: 'cables', task: runGuarded('cables', () => this.loadCableActivity()) });
-    if (this.mapLayers.cables) tasks.push({ name: 'cableHealth', task: runGuarded('cableHealth', () => this.loadCableHealth()) });
-    if (this.mapLayers.flights) tasks.push({ name: 'flights', task: runGuarded('flights', () => this.loadFlightDelays()) });
-    if (CYBER_LAYER_ENABLED && this.mapLayers.cyberThreats) tasks.push({ name: 'cyberThreats', task: runGuarded('cyberThreats', () => this.loadCyberThreats()) });
-    if (this.mapLayers.techEvents || SITE_VARIANT === 'tech') tasks.push({ name: 'techEvents', task: runGuarded('techEvents', () => this.loadTechEvents()) });
+    // NOTE: loadPositiveEvents & loadKindnessData depend on happyAllItems being
+    // populated by loadNews(), so they are called at the end of loadNews() — not here.
+    // Progress charts data (happy variant only)
+    if (SITE_VARIANT === 'happy') {
+      tasks.push({
+        name: 'progress',
+        task: runGuarded('progress', () => this.loadProgressData()),
+      });
+      // Counters don't need a load task -- they tick from hardcoded rates
+      tasks.push({
+        name: 'species',
+        task: runGuarded('species', () => this.loadSpeciesData()),
+      });
+      tasks.push({
+        name: 'renewable',
+        task: runGuarded('renewable', () => this.loadRenewableData()),
+      });
+      // Phase 8: Map overlay data (happiness choropleth + renewable installation markers)
+      tasks.push({
+        name: 'happinessMap',
+        task: runGuarded('happinessMap', async () => {
+          const data = await fetchHappinessScores();
+          this.map?.setHappinessScores(data);
+        }),
+      });
+      tasks.push({
+        name: 'renewableMap',
+        task: runGuarded('renewableMap', async () => {
+          const installations = await fetchRenewableInstallations();
+          this.map?.setRenewableInstallations(installations);
+        }),
+      });
+    }
+    // Global giving activity data (all variants)
+    tasks.push({
+      name: 'giving',
+      task: runGuarded('giving', async () => {
+        const givingResult = await fetchGivingSummary();
+        if (!givingResult.ok) {
+          dataFreshness.recordError('giving', 'Giving data unavailable (retaining prior state)');
+          return;
+        }
+        const data = givingResult.data;
+        (this.panels['giving'] as GivingPanel)?.setData(data);
+        if (data.platforms.length > 0) dataFreshness.recordUpdate('giving', data.platforms.length);
+      }),
+    });
+
+    if (SITE_VARIANT !== 'happy' && this.mapLayers.weather) tasks.push({ name: 'weather', task: runGuarded('weather', () => this.loadWeatherAlerts()) });
+    if (SITE_VARIANT !== 'happy' && this.mapLayers.ais) tasks.push({ name: 'ais', task: runGuarded('ais', () => this.loadAisSignals()) });
+    if (SITE_VARIANT !== 'happy' && this.mapLayers.cables) tasks.push({ name: 'cables', task: runGuarded('cables', () => this.loadCableActivity()) });
+    if (SITE_VARIANT !== 'happy' && this.mapLayers.cables) tasks.push({ name: 'cableHealth', task: runGuarded('cableHealth', () => this.loadCableHealth()) });
+    if (SITE_VARIANT !== 'happy' && this.mapLayers.flights) tasks.push({ name: 'flights', task: runGuarded('flights', () => this.loadFlightDelays()) });
+    if (SITE_VARIANT !== 'happy' && CYBER_LAYER_ENABLED && this.mapLayers.cyberThreats) tasks.push({ name: 'cyberThreats', task: runGuarded('cyberThreats', () => this.loadCyberThreats()) });
+    if (SITE_VARIANT !== 'happy' && (this.mapLayers.techEvents || SITE_VARIANT === 'tech')) tasks.push({ name: 'techEvents', task: runGuarded('techEvents', () => this.loadTechEvents()) });
 
     // Tech Readiness panel (tech variant only)
     if (SITE_VARIANT === 'tech') {
@@ -3157,6 +3406,12 @@ export class App {
         case 'displacement':
         case 'climate':
           await this.loadIntelligenceSignals();
+          break;
+        case 'positiveEvents':
+          await this.loadPositiveEvents();
+          break;
+        case 'kindness':
+          this.loadKindnessData();
           break;
       }
     } finally {
@@ -3330,6 +3585,15 @@ export class App {
         },
       });
 
+      // Tag items with content categories for happy variant
+      if (SITE_VARIANT === 'happy') {
+        for (const item of items) {
+          item.happyCategory = classifyNewsItem(item.source, item.title);
+        }
+        // Accumulate curated items for the positive news pipeline
+        this.happyAllItems = this.happyAllItems.concat(items);
+      }
+
       this.renderNewsForCategory(category, items);
       if (panel) {
         if (renderTimeout) {
@@ -3373,6 +3637,11 @@ export class App {
   }
 
   private async loadNews(): Promise<void> {
+    // Reset happy variant accumulator for fresh pipeline run
+    if (SITE_VARIANT === 'happy') {
+      this.happyAllItems = [];
+    }
+
     // Build categories dynamically from whatever feeds the current variant exports
     const categories = Object.entries(FEEDS)
       .filter((entry): entry is [string, typeof FEEDS[keyof typeof FEEDS]] => Array.isArray(entry[1]) && entry[1].length > 0)
@@ -3434,6 +3703,18 @@ export class App {
     this.initialLoadComplete = true;
     maybeShowDownloadBanner();
     mountCommunityWidget();
+
+    // Happy variant: run multi-stage positive news pipeline + map layers
+    // These depend on happyAllItems being populated above, so they must run here (not in loadAllData).
+    if (SITE_VARIANT === 'happy') {
+      await this.loadHappySupplementaryAndRender();
+      // Load map layers that geocode from happyAllItems (parallel with each other, not with news)
+      await Promise.allSettled([
+        this.mapLayers.positiveEvents ? this.loadPositiveEvents() : Promise.resolve(),
+        this.mapLayers.kindness ? Promise.resolve(this.loadKindnessData()) : Promise.resolve(),
+      ]);
+    }
+
     // Temporal baseline: report news volume
     updateAndCheck([
       { type: 'news', region: 'global', count: collectedNews.length },
@@ -3474,6 +3755,186 @@ export class App {
       }
     } catch (error) {
       console.error('[App] Clustering failed, clusters unchanged:', error);
+    }
+  }
+
+  private static readonly HAPPY_ITEMS_CACHE_KEY = 'happy-all-items';
+
+  /**
+   * Pre-populate happy panels from persistent cache for instant render.
+   * Called right after panels are created, before live RSS feeds load.
+   */
+  private async hydrateHappyPanelsFromCache(): Promise<void> {
+    try {
+      type CachedItem = Omit<NewsItem, 'pubDate'> & { pubDate: number };
+      const entry = await getPersistentCache<CachedItem[]>(App.HAPPY_ITEMS_CACHE_KEY);
+      if (!entry || !entry.data || entry.data.length === 0) return;
+      // Discard cache older than 24h
+      if (Date.now() - entry.updatedAt > 24 * 60 * 60 * 1000) return;
+
+      const items: NewsItem[] = entry.data.map(item => ({
+        ...item,
+        pubDate: new Date(item.pubDate),
+      }));
+
+      // Feed panels immediately — these will be overwritten when live data arrives
+      const scienceSources = ['GNN Science', 'ScienceDaily', 'Nature News', 'Live Science', 'New Scientist'];
+      this.breakthroughsPanel?.setItems(
+        items.filter(item => scienceSources.includes(item.source) || item.happyCategory === 'science-health')
+      );
+      this.heroPanel?.setHeroStory(
+        items.filter(item => item.happyCategory === 'humanity-kindness')
+          .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())[0]
+      );
+      this.digestPanel?.setStories(
+        [...items].sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime()).slice(0, 5)
+      );
+      this.positivePanel?.renderPositiveNews(items);
+    } catch (err) {
+      console.warn('[App] Happy panel cache hydration failed:', err);
+    }
+  }
+
+  /**
+   * Multi-stage positive news pipeline for the happy variant:
+   * 1. Render curated items immediately (non-blocking UX)
+   * 2. Fetch GDELT positive articles as supplementary content
+   * 3. Sentiment-filter GDELT articles via DistilBERT-SST2
+   * 4. Merge curated + supplementary, sorted by date, re-render
+   */
+  private async loadHappySupplementaryAndRender(): Promise<void> {
+    if (!this.positivePanel) return;
+
+    // Stage 1: Curated items already accumulated in happyAllItems
+    const curated = [...this.happyAllItems];
+
+    // Render curated immediately (non-blocking UX -- never wait for ML)
+    this.positivePanel.renderPositiveNews(curated);
+
+    // Stage 2: Load GDELT positive articles as supplementary content
+    let supplementary: NewsItem[] = [];
+    try {
+      const gdeltTopics = await fetchAllPositiveTopicIntelligence();
+      const gdeltItems: NewsItem[] = gdeltTopics.flatMap(topic =>
+        topic.articles.map(article => ({
+          source: 'GDELT',
+          title: article.title,
+          link: article.url,
+          pubDate: article.date ? new Date(article.date) : new Date(),
+          isAlert: false,
+          imageUrl: article.image || undefined,
+          happyCategory: classifyNewsItem('GDELT', article.title),
+        }))
+      );
+
+      // Stage 3: Sentiment-filter GDELT articles
+      supplementary = await filterBySentiment(gdeltItems);
+    } catch (err) {
+      console.warn('[App] Happy supplementary pipeline failed, using curated only:', err);
+    }
+
+    // Stage 4: Merge curated + supplementary, sorted by date, re-render
+    if (supplementary.length > 0) {
+      const merged = [...curated, ...supplementary];
+      merged.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+      this.positivePanel.renderPositiveNews(merged);
+    }
+
+    // Feed data to Phase 6 panels
+    const scienceSources = ['GNN Science', 'ScienceDaily', 'Nature News', 'Live Science', 'New Scientist'];
+    const scienceItems = this.happyAllItems.filter(item =>
+      scienceSources.includes(item.source) || item.happyCategory === 'science-health'
+    );
+    this.breakthroughsPanel?.setItems(scienceItems);
+
+    // Hero: pick most recent inspiring item
+    const heroItem = this.happyAllItems
+      .filter(item => item.happyCategory === 'humanity-kindness')
+      .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())[0];
+    this.heroPanel?.setHeroStory(heroItem);
+
+    // Digest: top 5 most recent items across all categories
+    const digestItems = [...this.happyAllItems]
+      .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())
+      .slice(0, 5);
+    this.digestPanel?.setStories(digestItems);
+
+    // Persist happyAllItems for instant hydration on next page load
+    // Store pubDate as timestamp (number) since Date isn't JSON-safe
+    setPersistentCache(
+      App.HAPPY_ITEMS_CACHE_KEY,
+      this.happyAllItems.map(item => ({ ...item, pubDate: item.pubDate.getTime() }))
+    ).catch(() => {});
+  }
+
+  private async loadPositiveEvents(): Promise<void> {
+    // Source 1: GDELT GEO API positive queries (via server-side RPC)
+    const gdeltEvents = await fetchPositiveGeoEvents();
+
+    // Source 2: Geocode curated RSS items from the happy pipeline
+    const rssEvents = geocodePositiveNewsItems(
+      this.happyAllItems.map(item => ({
+        title: item.title,
+        category: item.happyCategory,
+      }))
+    );
+
+    // Merge both sources, deduplicate by name
+    const seen = new Set<string>();
+    const merged = [...gdeltEvents, ...rssEvents].filter(e => {
+      if (seen.has(e.name)) return false;
+      seen.add(e.name);
+      return true;
+    });
+
+    this.map?.setPositiveEvents(merged);
+  }
+
+  private loadKindnessData(): void {
+    const kindnessItems = fetchKindnessData(
+      this.happyAllItems.map(item => ({
+        title: item.title,
+        happyCategory: item.happyCategory,
+      }))
+    );
+    this.map?.setKindnessData(kindnessItems);
+  }
+
+  private async loadProgressData(): Promise<void> {
+    const datasets = await fetchProgressData();
+    this.progressPanel?.setData(datasets);
+  }
+
+  private async loadSpeciesData(): Promise<void> {
+    const species = await fetchConservationWins();
+    this.speciesPanel?.setData(species);
+    // Phase 8: also send to map for species recovery zone overlay
+    this.map?.setSpeciesRecoveryZones(species);
+    // Phase 9: celebrate species recovery milestones
+    if (SITE_VARIANT === 'happy' && species.length > 0) {
+      checkMilestones({
+        speciesRecoveries: species.map(s => ({ name: s.commonName, status: s.recoveryStatus })),
+        newSpeciesCount: species.length,
+      });
+    }
+  }
+
+  private async loadRenewableData(): Promise<void> {
+    const data = await fetchRenewableEnergyData();
+    this.renewablePanel?.setData(data);
+    // Phase 9: celebrate renewable energy record milestones
+    if (SITE_VARIANT === 'happy' && data?.globalPercentage) {
+      checkMilestones({
+        renewablePercent: data.globalPercentage,
+      });
+    }
+
+    // EIA capacity data (solar/wind growth, coal decline) — independent of World Bank gauge
+    try {
+      const capacity = await fetchEnergyCapacity();
+      this.renewablePanel?.setCapacityData(capacity);
+    } catch {
+      // EIA failure does not break the existing World Bank gauge
     }
   }
 
@@ -4560,38 +5021,42 @@ export class App {
   }
 
   private setupRefreshIntervals(): void {
-    // Always refresh news, markets, predictions, pizzint
+    // Always refresh news for all variants
     this.scheduleRefresh('news', () => this.loadNews(), REFRESH_INTERVALS.feeds);
-    this.scheduleRefresh('markets', () => this.loadMarkets(), REFRESH_INTERVALS.markets);
-    this.scheduleRefresh('predictions', () => this.loadPredictions(), REFRESH_INTERVALS.predictions);
-    this.scheduleRefresh('pizzint', () => this.loadPizzInt(), 10 * 60 * 1000);
 
-    // Only refresh layer data if layer is enabled
-    this.scheduleRefresh('natural', () => this.loadNatural(), 5 * 60 * 1000, () => this.mapLayers.natural);
-    this.scheduleRefresh('weather', () => this.loadWeatherAlerts(), 10 * 60 * 1000, () => this.mapLayers.weather);
-    this.scheduleRefresh('fred', () => this.loadFredData(), 30 * 60 * 1000);
-    this.scheduleRefresh('oil', () => this.loadOilAnalytics(), 30 * 60 * 1000);
-    this.scheduleRefresh('spending', () => this.loadGovernmentSpending(), 60 * 60 * 1000);
+    // Happy variant only refreshes news -- skip all geopolitical/financial/military refreshes
+    if (SITE_VARIANT !== 'happy') {
+      this.scheduleRefresh('markets', () => this.loadMarkets(), REFRESH_INTERVALS.markets);
+      this.scheduleRefresh('predictions', () => this.loadPredictions(), REFRESH_INTERVALS.predictions);
+      this.scheduleRefresh('pizzint', () => this.loadPizzInt(), 10 * 60 * 1000);
 
-    // Refresh intelligence signals for CII (geopolitical variant only)
-    // This handles outages, protests, military - updates map when layers enabled
-    if (SITE_VARIANT === 'full') {
-      this.scheduleRefresh('intelligence', () => {
-        this.intelligenceCache = {}; // Clear cache to force fresh fetch
-        return this.loadIntelligenceSignals();
-      }, 5 * 60 * 1000);
+      // Only refresh layer data if layer is enabled
+      this.scheduleRefresh('natural', () => this.loadNatural(), 5 * 60 * 1000, () => this.mapLayers.natural);
+      this.scheduleRefresh('weather', () => this.loadWeatherAlerts(), 10 * 60 * 1000, () => this.mapLayers.weather);
+      this.scheduleRefresh('fred', () => this.loadFredData(), 30 * 60 * 1000);
+      this.scheduleRefresh('oil', () => this.loadOilAnalytics(), 30 * 60 * 1000);
+      this.scheduleRefresh('spending', () => this.loadGovernmentSpending(), 60 * 60 * 1000);
+
+      // Refresh intelligence signals for CII (geopolitical variant only)
+      // This handles outages, protests, military - updates map when layers enabled
+      if (SITE_VARIANT === 'full') {
+        this.scheduleRefresh('intelligence', () => {
+          this.intelligenceCache = {}; // Clear cache to force fresh fetch
+          return this.loadIntelligenceSignals();
+        }, 5 * 60 * 1000);
+      }
+
+      // Non-intelligence layer refreshes only
+      // NOTE: outages, protests, military are refreshed by intelligence schedule above
+      this.scheduleRefresh('firms', () => this.loadFirmsData(), 30 * 60 * 1000);
+      this.scheduleRefresh('ais', () => this.loadAisSignals(), REFRESH_INTERVALS.ais, () => this.mapLayers.ais);
+      this.scheduleRefresh('cables', () => this.loadCableActivity(), 30 * 60 * 1000, () => this.mapLayers.cables);
+      this.scheduleRefresh('cableHealth', () => this.loadCableHealth(), 5 * 60 * 1000, () => this.mapLayers.cables);
+      this.scheduleRefresh('flights', () => this.loadFlightDelays(), 10 * 60 * 1000, () => this.mapLayers.flights);
+      this.scheduleRefresh('cyberThreats', () => {
+        this.cyberThreatsCache = null;
+        return this.loadCyberThreats();
+      }, 10 * 60 * 1000, () => CYBER_LAYER_ENABLED && this.mapLayers.cyberThreats);
     }
-
-    // Non-intelligence layer refreshes only
-    // NOTE: outages, protests, military are refreshed by intelligence schedule above
-    this.scheduleRefresh('firms', () => this.loadFirmsData(), 30 * 60 * 1000);
-    this.scheduleRefresh('ais', () => this.loadAisSignals(), REFRESH_INTERVALS.ais, () => this.mapLayers.ais);
-    this.scheduleRefresh('cables', () => this.loadCableActivity(), 30 * 60 * 1000, () => this.mapLayers.cables);
-    this.scheduleRefresh('cableHealth', () => this.loadCableHealth(), 5 * 60 * 1000, () => this.mapLayers.cables);
-    this.scheduleRefresh('flights', () => this.loadFlightDelays(), 10 * 60 * 1000, () => this.mapLayers.flights);
-    this.scheduleRefresh('cyberThreats', () => {
-      this.cyberThreatsCache = null;
-      return this.loadCyberThreats();
-    }, 10 * 60 * 1000, () => CYBER_LAYER_ENABLED && this.mapLayers.cyberThreats);
   }
 }
