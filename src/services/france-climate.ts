@@ -255,12 +255,12 @@ export async function fetchCopernicusFranceFires(): Promise<CopernicusFranceEven
       let lon = 2.5;
       if (f.geometry?.type === 'Point') {
         const coords = f.geometry.coordinates as number[];
-        lon = coords[0]; lat = coords[1];
+        lon = coords[0] ?? lon; lat = coords[1] ?? lat;
       } else if (f.geometry?.type === 'Polygon') {
         const ring = (f.geometry.coordinates as number[][][])[0];
         if (ring?.length) {
-          lon = ring.reduce((s, c) => s + c[0], 0) / ring.length;
-          lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+          lon = ring.reduce((s, c) => s + (c[0] ?? 0), 0) / ring.length;
+          lat = ring.reduce((s, c) => s + (c[1] ?? 0), 0) / ring.length;
         }
       }
 

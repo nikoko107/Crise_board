@@ -312,7 +312,7 @@ export const SOURCE_TYPES: Record<string, SourceType> = {
   'CNN World': 'mainstream', 'Politico': 'mainstream',
   'EuroNews': 'mainstream', 'France 24': 'mainstream', 'Le Monde': 'mainstream',
   'LCI': 'mainstream', 'Le Figaro': 'mainstream', 'Libération': 'mainstream', 'BFMTV': 'mainstream',
-  'Météo France': 'government', 'Vigicrues': 'government', 'CNES': 'government', 'Copernicus EU': 'government',
+  'Météo France': 'gov', 'Vigicrues': 'gov', 'CNES': 'gov', 'Copernicus EU': 'gov',
   // European Addition
   'El País': 'mainstream', 'El Mundo': 'mainstream', 'BBC Mundo': 'mainstream',
   'Tagesschau': 'mainstream', 'Der Spiegel': 'mainstream', 'Die Zeit': 'mainstream', 'DW News': 'mainstream',
