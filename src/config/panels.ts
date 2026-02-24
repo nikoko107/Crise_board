@@ -44,6 +44,8 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'ucdp-events': { name: 'UCDP Conflict Events', enabled: true, priority: 2 },
   displacement: { name: 'UNHCR Displacement', enabled: true, priority: 2 },
   climate: { name: 'Climate Anomalies', enabled: true, priority: 2 },
+  'france-climate': { name: 'France — Crises climatiques', enabled: true, priority: 1 },
+  'france-crises': { name: 'Actualités France', enabled: true, priority: 1 },
   'population-exposure': { name: 'Population Exposure', enabled: true, priority: 2 },
 };
 

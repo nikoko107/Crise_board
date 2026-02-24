@@ -179,3 +179,55 @@
   width: 100%;
 }
 .wm-dl-toggle:hover { color: var(--text, #e8e8e8); }
+
+/* ─── France Climate Crisis Panel ─────────────────────────────────────────── */
+.france-climate-panel { font-size: 12px; }
+.fc-section { margin-bottom: 14px; }
+.fc-section-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.fc-count {
+  margin-left: auto; background: var(--overlay-medium);
+  color: var(--text-dim); font-size: 10px;
+  padding: 1px 6px; border-radius: 10px;
+}
+.fc-table { width: 100%; border-collapse: collapse; }
+.fc-table th {
+  text-align: left; color: var(--text-muted); font-weight: 600;
+  font-size: 10px; text-transform: uppercase;
+  padding: 3px 8px; border-bottom: 1px solid var(--border);
+}
+.fc-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+.france-alert-row { cursor: pointer; }
+.france-alert-row:hover { background: var(--surface-hover); }
+.fc-icon { font-size: 14px; width: 24px; text-align: center; }
+.fc-source { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-dept { color: var(--text-dim); font-size: 10px; }
+.fc-badge {
+  font-size: 9px; font-weight: 700; padding: 2px 6px;
+  border-radius: 3px; letter-spacing: 0.5px;
+}
+/* Vigicrues levels */
+.vigicrue-lvl-1 { background: color-mix(in srgb, #4caf50 15%, transparent); color: #4caf50; }
+.vigicrue-lvl-2 { background: color-mix(in srgb, #ffeb3b 20%, transparent); color: #b8a800; }
+.vigicrue-lvl-3 { background: color-mix(in srgb, #ff9800 20%, transparent); color: #ff9800; }
+.vigicrue-lvl-4 { background: color-mix(in srgb, #f44336 20%, transparent); color: #f44336; }
+/* Météo France vigilance */
+.meteo-vert   { background: color-mix(in srgb, #4caf50 15%, transparent); color: #4caf50; }
+.meteo-jaune  { background: color-mix(in srgb, #ffeb3b 20%, transparent); color: #b8a800; }
+.meteo-orange { background: color-mix(in srgb, #ff9800 20%, transparent); color: #ff9800; }
+.meteo-rouge  { background: color-mix(in srgb, #f44336 20%, transparent); color: #f44336; }
+/* Copernicus severity */
+.cop-sev-low    { background: color-mix(in srgb, #4caf50 15%, transparent); color: #4caf50; }
+.cop-sev-medium { background: color-mix(in srgb, #ff9800 20%, transparent); color: #ff9800; }
+.cop-sev-high   { background: color-mix(in srgb, #f44336 20%, transparent); color: #f44336; }
+/* Source attribution note */
+.fc-source-note {
+  font-size: 10px; color: var(--text-dim);
+  padding: 4px 8px; text-align: right;
+}
+.fc-source-note a { color: var(--text-dim); text-decoration: underline; }

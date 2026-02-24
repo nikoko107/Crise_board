@@ -31,6 +31,7 @@ import { focusInvestmentOnMap } from '@/services/investments-focus';
 import { fetchConflictEvents, fetchUcdpClassifications, fetchHapiSummary, fetchUcdpEvents, deduplicateAgainstAcled } from '@/services/conflict';
 import { fetchUnhcrPopulation } from '@/services/displacement';
 import { fetchClimateAnomalies } from '@/services/climate';
+import { fetchFranceClimateData } from '@/services/france-climate';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { buildMapUrl, debounce, loadFromStorage, parseMapUrlState, saveToStorage, ExportPanel, getCircuitBreakerCooldownInfo, isMobileDevice, setTheme, getCurrentTheme } from '@/utils';
 import { reverseGeocode } from '@/utils/reverse-geocode';
@@ -78,6 +79,7 @@ import {
   UcdpEventsPanel,
   DisplacementPanel,
   ClimateAnomalyPanel,
+  FranceClimatePanel,
   PopulationExposurePanel,
   InvestmentsPanel,
   LanguageSelector,
@@ -2159,6 +2161,11 @@ export class App {
     this.newsPanels['middleeast'] = middleeastPanel;
     this.panels['middleeast'] = middleeastPanel;
 
+    const franceCrisesNewsPanel = new NewsPanel('france-crises', t('panels.franceCrisesNews'));
+    this.attachRelatedAssetHandlers(franceCrisesNewsPanel);
+    this.newsPanels['france-crises'] = franceCrisesNewsPanel;
+    this.panels['france-crises'] = franceCrisesNewsPanel;
+
     const layoffsPanel = new NewsPanel('layoffs', t('panels.layoffs'));
     this.attachRelatedAssetHandlers(layoffsPanel);
     this.newsPanels['layoffs'] = layoffsPanel;
@@ -2332,6 +2339,12 @@ export class App {
         this.map?.setCenter(lat, lon, 4);
       });
       this.panels['climate'] = climatePanel;
+
+      const franceClimatePanel = new FranceClimatePanel();
+      franceClimatePanel.setAlertClickHandler((lat, lon) => {
+        this.map?.setCenter(lat, lon, 6);
+      });
+      this.panels['france-climate'] = franceClimatePanel;
 
       const populationExposurePanel = new PopulationExposurePanel();
       this.panels['population-exposure'] = populationExposurePanel;
@@ -3733,6 +3746,18 @@ export class App {
     }
   }
 
+  private async loadFranceClimateData(): Promise<void> {
+    try {
+      const franceData = await fetchFranceClimateData();
+      (this.panels['france-climate'] as FranceClimatePanel)?.setData(franceData);
+      const total = franceData.vigicrues.length + franceData.meteoVigilance.length + franceData.copernicusFires.length;
+      if (total > 0) dataFreshness.recordUpdate('france-climate', total);
+    } catch (error) {
+      console.error('[Intelligence] France climate refresh failed:', error);
+      dataFreshness.recordError('france-climate', String(error));
+    }
+  }
+
   // Cache for intelligence data - allows CII to work even when layers are disabled
   private intelligenceCache: {
     outages?: InternetOutage[];
@@ -3973,6 +3998,19 @@ export class App {
       } catch (error) {
         console.error('[Intelligence] Climate anomalies fetch failed:', error);
         dataFreshness.recordError('climate', String(error));
+      }
+    })());
+
+    // Fetch France climate crisis data (Vigicrues, Météo France, Copernicus)
+    tasks.push((async () => {
+      try {
+        const franceData = await fetchFranceClimateData();
+        (this.panels['france-climate'] as FranceClimatePanel)?.setData(franceData);
+        const total = franceData.vigicrues.length + franceData.meteoVigilance.length + franceData.copernicusFires.length;
+        if (total > 0) dataFreshness.recordUpdate('france-climate', total);
+      } catch (error) {
+        console.error('[Intelligence] France climate data fetch failed:', error);
+        dataFreshness.recordError('france-climate', String(error));
       }
     })());
 
@@ -4600,6 +4638,7 @@ export class App {
     // Only refresh layer data if layer is enabled
     this.scheduleRefresh('natural', () => this.loadNatural(), 5 * 60 * 1000, () => this.mapLayers.natural);
     this.scheduleRefresh('weather', () => this.loadWeatherAlerts(), 10 * 60 * 1000, () => this.mapLayers.weather);
+    this.scheduleRefresh('france-climate', () => this.loadFranceClimateData(), 15 * 60 * 1000);
     this.scheduleRefresh('fred', () => this.loadFredData(), 30 * 60 * 1000);
     this.scheduleRefresh('oil', () => this.loadOilAnalytics(), 30 * 60 * 1000);
     this.scheduleRefresh('spending', () => this.loadGovernmentSpending(), 60 * 60 * 1000);
