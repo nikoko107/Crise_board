@@ -49,7 +49,6 @@ export {
 // ============================================
 
 // Full variant (geopolitical) - only included in full builds
-// These are large data files that should be tree-shaken in tech builds
 export {
   FEEDS,
   INTEL_SOURCES,
