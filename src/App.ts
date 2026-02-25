@@ -11,6 +11,8 @@ import {
   SatelliteFiresPanel,
   ClimateAnomalyPanel,
   FranceClimatePanel,
+  FranceTVPanel,
+  FranceWebcamsPanel,
 } from '@/components';
 
 // ─── Map layers: tout désactivé sauf incendies et climat ─────────────────────
@@ -143,6 +145,14 @@ export class App {
     const fires = new SatelliteFiresPanel();
     this.panels['satellite-fires'] = fires;
     grid.appendChild(fires.getElement());
+
+    const tv = new FranceTVPanel();
+    this.panels['france-tv'] = tv;
+    grid.appendChild(tv.getElement());
+
+    const webcams = new FranceWebcamsPanel();
+    this.panels['france-webcams'] = webcams;
+    grid.appendChild(webcams.getElement());
   }
 
   // ─── Chargement de données ───────────────────────────────────────────────────

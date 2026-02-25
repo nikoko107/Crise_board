@@ -4,3 +4,5 @@ export { MapContainer, type MapView, type TimeRange, type MapContainerState } fr
 export * from './SatelliteFiresPanel';
 export * from './ClimateAnomalyPanel';
 export * from './FranceClimatePanel';
+export * from './FranceTVPanel';
+export * from './FranceWebcamsPanel';
