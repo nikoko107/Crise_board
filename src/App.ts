@@ -32,7 +32,21 @@ const REFRESH_FRANCE_CLIMATE_MS  = 15 * 60 * 1000; // 15 min
 const REFRESH_CLIMATE_ANOMALY_MS = 30 * 60 * 1000; // 30 min
 const REFRESH_FIRES_MS           = 30 * 60 * 1000; // 30 min
 
+// Exported so that CountryBriefPage (still in the project) can import it as a type
+export interface CountryBriefSignals {
+  protests: number;
+  militaryFlights: number;
+  militaryVessels: number;
+  outages: number;
+  earthquakes: number;
+  displacementOutflow: number;
+  climateStress: number;
+  conflictEvents: number;
+  isTier1: boolean;
+}
+
 export class App {
+  private container: HTMLElement;
   private map: MapContainer | null = null;
   private panels: Record<string, Panel> = {};
   private inFlight: Set<string> = new Set();
@@ -40,9 +54,9 @@ export class App {
   private isDestroyed = false;
 
   constructor(containerId: string) {
-    if (!document.getElementById(containerId)) {
-      throw new Error(`Container #${containerId} not found`);
-    }
+    const el = document.getElementById(containerId);
+    if (!el) throw new Error(`Container #${containerId} not found`);
+    this.container = el;
   }
 
   // ─── Bootstrap ──────────────────────────────────────────────────────────────
